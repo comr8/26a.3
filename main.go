@@ -3,11 +3,19 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+)
+
+var (
+	logDebug = log.New(os.Stdout, "Debug: ", log.Ldate|log.Ltime)
+	LogInfo  = log.New(os.Stdout, "Info: ", log.Ldate|log.Ltime)
+	logErr   = log.New(os.Stdout, "Error: ", log.Ldate|log.Ltime)
+	LogWarn  = log.New(os.Stdout, "Warning: ", log.Ldate|log.Ltime)
 )
 
 // Интервал очистки кольцевого буфера
@@ -37,6 +45,7 @@ type RingIntBuffer struct {
 
 // NewRingIntBuffer - создание нового буфера целых чисел
 func NewRingIntBuffer(size int) *RingIntBuffer {
+	logDebug.Println("New ring bufer created")
 	return &RingIntBuffer{make([]int, size), -1, size, sync.Mutex{}}
 }
 
@@ -47,6 +56,7 @@ func (r *RingIntBuffer) Push(el int) {
 	r.m.Lock()
 	defer r.m.Unlock()
 	if r.pos == r.size-1 {
+		LogWarn.Println("Buffer size is full, the oldest element will be replaced")
 		// Сдвигаем все элементы буфера
 		// на одну позицию в сторону начала
 		for i := 1; i <= r.size-1; i++ {
@@ -57,6 +67,7 @@ func (r *RingIntBuffer) Push(el int) {
 		r.pos++
 		r.array[r.pos] = el
 	}
+	logDebug.Printf("Value:\"%v\" pushed to the end of buffer\n", el)
 }
 
 // Get - получение всех элементов буфера и его последующая очистка
@@ -83,6 +94,7 @@ type PipeLineInt struct {
 
 // NewPipelineInt - Создание пайплайна обработки целых чисел
 func NewPipelineInt(done <-chan bool, stages ...StageInt) *PipeLineInt {
+	logDebug.Println("New pipeline created")
 	return &PipeLineInt{done: done, stages: stages}
 }
 
@@ -112,16 +124,19 @@ func main() {
 			for {
 				scanner.Scan()
 				data = scanner.Text()
+				logDebug.Printf("Got data from source: %v\n", data)
 				if strings.EqualFold(data, "exit") {
 					fmt.Println("Программа завершила работу!")
 					return
 				}
 				i, err := strconv.Atoi(data)
 				if err != nil {
+					logErr.Printf("Received data error: %v\n", data)
 					fmt.Println("Программа обрабатывает только целые числа!")
 					continue
 				}
 				c <- i
+				logDebug.Println("Data sent to main chan")
 			}
 		}()
 		return c, done
@@ -136,9 +151,12 @@ func main() {
 					if data > 0 {
 						select {
 						case convertedIntChan <- data:
+							LogInfo.Print("Negative filtering stage sent the data")
 						case <-done:
 							return
 						}
+					} else {
+						LogWarn.Println("Got negative value, data excluded from processing")
 					}
 				case <-done:
 					return
@@ -157,9 +175,12 @@ func main() {
 					if data != 0 && data%3 == 0 {
 						select {
 						case filteredIntChan <- data:
+							LogInfo.Println("Special filtering stage sent the data")
 						case <-done:
 							return
 						}
+					} else {
+						LogWarn.Println("Got value not a multiple of three, data excluded from processing")
 					}
 				case <-done:
 					return
@@ -176,6 +197,7 @@ func main() {
 			for {
 				select {
 				case data := <-c:
+					LogInfo.Println("Buffering is initialized")
 					buffer.Push(data)
 				case <-done:
 					return
@@ -212,6 +234,7 @@ func main() {
 	}
 	// Потребитель данных от пайплайна
 	consumer := func(done <-chan bool, c <-chan int) {
+		logDebug.Println("Consumer initiated")
 		for {
 			select {
 			case data := <-c:
