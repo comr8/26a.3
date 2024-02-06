@@ -1,0 +1,13 @@
+FROM golang:latest AS compiling_stage
+RUN mkdir -p /pipeline
+WORKDIR /pipeline
+ADD main.go .
+ADD go.mod .
+RUN go build -o pipeline
+ 
+FROM alpine:latest
+LABEL version="1.0.0"
+LABEL maintainer="Evgenii mukhoriamov<test@test.ru>"
+WORKDIR /root/
+COPY --from=compiling_stage /pipeline .
+ENTRYPOINT ./pipeline
